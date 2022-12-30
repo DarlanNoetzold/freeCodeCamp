@@ -4,14 +4,26 @@ const express     = require('express');
 const bodyParser  = require('body-parser');
 const cors        = require('cors');
 
-require("./DB-module");
-const helmet = require("helmet");
-
 const apiRoutes         = require('./routes/api.js');
 const fccTestingRoutes  = require('./routes/fcctesting.js');
 const runner            = require('./test-runner');
+const helmet            = require('helmet');
+const http              = require('http');
+const terminate         = require('./terminate')
+// const db = require("./db");
 
 const app = express();
+const server = http.createServer(app);
+
+app.use(helmet({
+  referrerPolicy: { policy: "same-origin" },
+  dnsPrefetchControl: {
+    allow: false,
+  },
+  frameguard: {
+    action: "sameorigin",
+  }
+}))
 
 app.use('/public', express.static(process.cwd() + '/public'));
 
@@ -19,22 +31,6 @@ app.use(cors({origin: '*'})); //For FCC testing purposes only
 
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
-
-////helmet SecurityPolicy
-app.use(helmet({
-  frameguard: {
-    action: 'sameorigin'
-  },
-  referrerPolicy: { policy: "same-origin" },
-  contentSecurityPolicy: { 
-    directives: {
-      defaultSrc: ["'self'"],
-      styleSrc: ["'self'"],
-      scriptSrc: ["'self'", "trusted-cdn.com"] 
-    }
-  },
-  dnsPrefetchControl: false
-}));
 
 //Sample front-end
 app.route('/b/:board/')
@@ -66,20 +62,29 @@ app.use(function(req, res, next) {
 });
 
 //Start our server and tests!
-app.listen(process.env.PORT || 3000, function () {
-  console.log("Listening on port " + process.env.PORT);
+const listener = server.listen(process.env.PORT || 3000, function () {
+  console.log('Your app is listening on port ' + listener.address().port);
   if(process.env.NODE_ENV==='test') {
     console.log('Running Tests...');
     setTimeout(function () {
       try {
         runner.run();
       } catch(e) {
-        var error = e;
-          console.log('Tests are not valid:');
-          console.log(error);
+        console.log('Tests are not valid:');
+        console.error(e);
       }
     }, 1500);
   }
 });
 
-module.exports = app; //for testing
+const exitHandler = terminate(server, {
+  coredump: false,
+  timeout: 500
+})
+
+process.on('uncaughtException', exitHandler(1, 'Unexpected Error'));
+process.on('unhandledRejection', exitHandler(1, 'Unhandled Promise'));
+process.on('SIGTERM', exitHandler(0, 'SIGTERM'));
+process.on('SIGINT', exitHandler(0, 'SIGINT'));
+
+module.exports = server; //for testing
